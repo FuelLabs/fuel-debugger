@@ -9,7 +9,7 @@ use fuel_vm::prelude::{Breakpoint, ContractId};
 
 use fuel_debugger::{Command, Response};
 
-use fuel_debugger_cli::{names, Client, Listener};
+use fuel_debugger_client::{names, Client, Listener};
 
 #[derive(Parser, Debug)]
 pub struct Opt {

@@ -92,7 +92,7 @@ jobs:
       run: |
         cargo install toml-cli
         ./.github/workflows/scripts/verify_tag.sh ${{ github.ref_name }} Cargo.toml
-        ./.github/workflows/scripts/verify_tag.sh ${{ github.ref_name }} cli/Cargo.toml
+        ./.github/workflows/scripts/verify_tag.sh ${{ github.ref_name }} client/Cargo.toml
     - name: Publish crate
       uses: katyo/publish-crates@v1
       with:
