@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::io::{BufReader, BufRead, Write};
 
 use fuel_types::Word;
 use fuel_vm::prelude::{Breakpoint, Interpreter, Receipt};
@@ -33,10 +33,7 @@ pub enum Command {
     /// Requests a register dump
     ReadRegisters,
     /// Requests a memory dump
-    ReadMemory {
-        start: usize,
-        len: usize,
-    },
+    ReadMemory { start: usize, len: usize },
 }
 impl Command {
     pub fn execute<S>(&self, vm: &mut Interpreter<S>) -> (Option<Response>, CommandControlFlow) {
@@ -51,7 +48,7 @@ impl Command {
             Self::SingleStepping(value) => {
                 vm.set_single_stepping(*value);
                 (None, CommandControlFlow::Debugger)
-            },
+            }
             Self::Breakpoint(b) => {
                 vm.set_breakpoint(*b);
                 (Some(Response::Ok), CommandControlFlow::Debugger)
@@ -63,8 +60,14 @@ impl Command {
                     CommandControlFlow::Debugger,
                 )
             }
-            Self::ReadMemory  {start, len} => {
-                let regs: Vec<_> = vm.memory().iter().skip(*start).take(*len).copied().collect();
+            Self::ReadMemory { start, len } => {
+                let regs: Vec<_> = vm
+                    .memory()
+                    .iter()
+                    .skip(*start)
+                    .take(*len)
+                    .copied()
+                    .collect();
                 (
                     Some(Response::ReadMemory(regs)),
                     CommandControlFlow::Debugger,
@@ -81,9 +84,7 @@ pub enum Response {
     /// Command executed successfully
     Ok,
     /// Program terminated
-    Terminated {
-        receipts: Vec<Receipt>,
-    },
+    Terminated { receipts: Vec<Receipt> },
     /// Version reply
     Version { core: String },
     /// A breakpoint was encountered
@@ -106,8 +107,7 @@ pub fn process<S>(stream: &mut TcpStream, vm: &mut Interpreter<S>, event: Option
     }
 
     while reader.read_line(&mut line).is_ok() {
-        let cmd: Command =
-            serde_json::from_str(&line).expect("Invalid JSON from the debugger");
+        let cmd: Command = serde_json::from_str(&line).expect("Invalid JSON from the debugger");
         line.clear();
 
         let (resp, cf) = cmd.execute(vm);
