@@ -1,20 +1,15 @@
 use clap::Parser;
-use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::net::SocketAddr;
-use std::str::FromStr;
-use std::{env, io, net, path::PathBuf};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{
-    tcp::{ReadHalf, WriteHalf},
-    TcpListener, TcpStream,
-};
+use std::{io, net};
+use tokio::net::TcpListener;
 
-use fuel_core::debugger::{Command, Response};
 use fuel_vm::consts::{VM_MAX_RAM, WORD_SIZE};
-use fuel_vm::prelude::{Breakpoint, ContractId, Interpreter, Receipt};
+use fuel_vm::prelude::{Breakpoint, ContractId};
 
-use fuel_debugger::{names, Client, Listener};
+use fuel_debugger::{Command, Response};
+
+use fuel_debugger_cli::{names, Client, Listener};
 
 #[derive(Parser, Debug)]
 pub struct Opt {
@@ -43,10 +38,15 @@ async fn main() -> io::Result<()> {
         println!("Connected (remote {:?})", addr);
 
         loop {
-            let user_command = match rl.readline(">> ") {
+            match rl.readline(">> ") {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
-                    parse_and_run_command(&mut client, line.as_str()).await;
+                    if let Err(err) = parse_and_run_command(&mut client, line.as_str()).await {
+                        if err.kind() != io::ErrorKind::Other {
+                            println!("Error: {:?}", err);
+                        }
+                        break;
+                    }
                 }
                 Err(err) => {
                     println!("{:?}", err);
@@ -132,13 +132,11 @@ async fn parse_and_run_command(client: &mut Client, text: &str) -> io::Result<()
                         println!("Invalid argument");
                         return Ok(());
                     }
+                } else if let Some(offset) = parse_int(first) {
+                    Breakpoint::script(offset as u64)
                 } else {
-                    if let Some(offset) = parse_int(first) {
-                        Breakpoint::script(offset as u64)
-                    } else {
-                        println!("Invalid argument");
-                        return Ok(());
-                    }
+                    println!("Invalid argument");
+                    return Ok(());
                 };
 
                 println!("{:?}", client.cmd(&Command::Breakpoint(b)).await?);
@@ -150,7 +148,7 @@ async fn parse_and_run_command(client: &mut Client, text: &str) -> io::Result<()
                 };
 
                 let mut any_specified = false;
-                while let Some(arg) = split.next() {
+                for arg in split {
                     any_specified = true;
 
                     if let Some(v) = parse_int(arg) {
@@ -160,7 +158,7 @@ async fn parse_and_run_command(client: &mut Client, text: &str) -> io::Result<()
                             println!("Register index too large {}", v);
                             return Ok(());
                         }
-                    } else if let Some(i) = names::REGISTERS.get(&arg) {
+                    } else if let Some(i) = names::REGISTERS.get(arg) {
                         println!("{:?}", regs[*i]);
                     } else {
                         println!("Unknown register name {}", arg);
@@ -216,10 +214,10 @@ async fn parse_and_run_command(client: &mut Client, text: &str) -> io::Result<()
                     for byte in chunk {
                         print!(" {:02x}", byte);
                     }
-                    println!("");
+                    println!();
                 }
             }
-            other => {
+            _other => {
                 println!("Unknown command");
             }
         }
@@ -229,13 +227,13 @@ async fn parse_and_run_command(client: &mut Client, text: &str) -> io::Result<()
 }
 
 fn parse_int(s: &str) -> Option<usize> {
-    let (s, radix) = if s.starts_with("0x") {
-        (&s[2..], 16)
+    let (s, radix) = if let Some(stripped) = s.strip_prefix("0x") {
+        (stripped, 16)
     } else {
         (s, 10)
     };
 
-    let s = s.replace("_", "");
+    let s = s.replace('_', "");
 
     usize::from_str_radix(&s, radix).ok()
 }

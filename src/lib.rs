@@ -1,11 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpSocket, TcpStream};
-
+use std::net::TcpStream;
+use std::io::{BufReader, BufRead, Write};
 
 use fuel_types::Word;
-use fuel_vm::prelude::{Breakpoint, Interpreter, Receipt, ContractId};
+use fuel_vm::prelude::{Breakpoint, Interpreter, Receipt};
 
 pub enum CommandControlFlow {
     /// Debugger awaiting for more commands
@@ -51,16 +49,15 @@ impl Command {
             ),
             Self::Continue => (None, CommandControlFlow::Proceed),
             Self::SingleStepping(value) => {
-                todo!("Single-stepping on the VM");
-                // vm.set_single_stepping(value);
+                vm.set_single_stepping(*value);
                 (None, CommandControlFlow::Debugger)
             },
             Self::Breakpoint(b) => {
-                vm.set_breakpoint((*b).into());
+                vm.set_breakpoint(*b);
                 (Some(Response::Ok), CommandControlFlow::Debugger)
             }
             Self::ReadRegisters => {
-                let regs: Vec<_> = vm.registers().iter().copied().collect();
+                let regs = vm.registers().to_vec();
                 (
                     Some(Response::ReadRegisters(regs)),
                     CommandControlFlow::Debugger,
@@ -97,18 +94,18 @@ pub enum Response {
     ReadMemory(Vec<u8>),
 }
 
-pub async fn process<S>(ds: &mut TcpStream, vm: &mut Interpreter<S>, event: Option<Response>) {
-    let (reader, mut writer) = ds.split();
+pub fn process<S>(stream: &mut TcpStream, vm: &mut Interpreter<S>, event: Option<Response>) {
+    let reader = stream.try_clone().expect("Couldn't clone socket");
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 
     if let Some(r) = event {
         let mut v = serde_json::to_string(&r).expect("Serialization failed");
         v.push('\n');
-        writer.write(v.as_bytes()).await.expect("Sending failed");
+        stream.write_all(v.as_bytes()).expect("Sending failed");
     }
 
-    while let Ok(_) = reader.read_line(&mut line).await {
+    while reader.read_line(&mut line).is_ok() {
         let cmd: Command =
             serde_json::from_str(&line).expect("Invalid JSON from the debugger");
         line.clear();
@@ -118,7 +115,7 @@ pub async fn process<S>(ds: &mut TcpStream, vm: &mut Interpreter<S>, event: Opti
         if let Some(r) = resp {
             let mut v = serde_json::to_string(&r).expect("Serialization failed");
             v.push('\n');
-            writer.write(v.as_bytes()).await.expect("Sending failed");
+            stream.write_all(v.as_bytes()).expect("Sending failed");
         }
 
         match cf {

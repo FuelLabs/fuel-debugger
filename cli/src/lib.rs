@@ -1,12 +1,11 @@
+use fuel_debugger::{Command, Response};
 use std::io;
 use std::net::SocketAddr;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
-    TcpListener, TcpStream,
+    TcpListener,
 };
-
-use fuel_core::debugger::{Command, Response};
 
 pub mod names;
 
@@ -20,7 +19,7 @@ impl Listener {
     }
 
     pub async fn accept(&self) -> io::Result<(Client, SocketAddr)> {
-        let (mut socket, addr) = self.listener.accept().await?;
+        let (socket, addr) = self.listener.accept().await?;
 
         let (reader, writer) = socket.into_split();
         let reader = BufReader::new(reader);
@@ -39,13 +38,18 @@ impl Client {
         let mut v = serde_json::to_string(cmd).expect("Serialization failed");
         v.push('\n');
         self.writer
-            .write(v.as_bytes())
+            .write_all(v.as_bytes())
             .await
             .expect("Sending failed");
 
         let mut line = String::new();
         let _ = self.reader.read_line(&mut line).await?;
-        let resp: Response = serde_json::from_str(&line).expect("Invalid JSON from the debugger");
-        Ok(resp)
+        if line.is_empty() {
+            Err(io::Error::new(io::ErrorKind::Other, "Connection closed"))
+        } else {
+            let resp: Response =
+                serde_json::from_str(&line).expect("Invalid JSON from the debugger");
+            Ok(resp)
+        }
     }
 }
