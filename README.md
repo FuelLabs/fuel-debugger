@@ -5,7 +5,7 @@
 [![docs](https://docs.rs/fuel-debugger/badge.svg)](https://docs.rs/fuel-debugger/)
 [![discord](https://img.shields.io/badge/chat%20on-discord-orange?&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/xfpK4Pe)
 
-Debugger attachable to FuelVM over a streaming messing channel, such as a TCP socket. A CLI interface over TCP is provided as well.
+Debugger attachable to FuelVM over a streaming message channel, such as a TCP socket. A CLI interface over TCP is provided as well.
 
 ## Technical details
 
