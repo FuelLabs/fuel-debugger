@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1", features = ["env", "derive"] }
-fuel-debugger = { path = "../", version = "0.1" }
+fuel-debugger = { path = "../", version = "0.1.0" }
 # Version >=0.5.1 of fuel-vm is required for the debugging features
 fuel-vm = "0.5.1"
 phf = { version = "0.10", features = ["macros"] }
