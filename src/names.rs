@@ -1,4 +1,4 @@
-pub const REGISTERS: [&'static str; 16] = [
+pub const REGISTERS: [&str; 16] = [
     "zero", "one", "of", "pc", "ssp", "sp", "fp", "hp", "err", "ggas", "cgas", "bal", "is", "ret",
     "retl", "flag",
 ];

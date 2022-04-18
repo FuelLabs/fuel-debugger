@@ -94,8 +94,8 @@ impl fmt::Display for ArgError {
 
 async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
-    let path_to_tx_json = args.pop().ok_or(Box::new(ArgError::NotEnough))?;
-    if args.len() != 0 {
+    let path_to_tx_json = args.pop().ok_or_else(|| Box::new(ArgError::NotEnough))?;
+    if !args.is_empty() {
         return Err(Box::new(ArgError::TooMany));
     }
 
@@ -109,7 +109,7 @@ async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
 
 async fn cmd_continue(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
-    if args.len() != 0 {
+    if !args.is_empty() {
         return Err(Box::new(ArgError::TooMany));
     }
 
@@ -138,7 +138,7 @@ async fn cmd_step(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dy
 
 async fn cmd_breakpoint(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
-    let offset = args.pop().ok_or(Box::new(ArgError::NotEnough))?;
+    let offset = args.pop().ok_or_else(|| Box::new(ArgError::NotEnough))?;
     let contract_id = args.pop();
 
     if !args.is_empty() {
@@ -176,7 +176,7 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
         }
     } else {
         for arg in &args {
-            if let Some(v) = parse_int(&arg) {
+            if let Some(v) = parse_int(arg) {
                 if v < VM_REGISTER_COUNT {
                     let value = state.client.read_register(v.try_into().unwrap()).await?;
                     println!("reg[{:#02x}] = {:<8} # {}", v, value, register_name(v));
@@ -184,7 +184,7 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
                     println!("Register index too large {}", v);
                     return Ok(());
                 }
-            } else if let Some(index) = names::register_index(&arg) {
+            } else if let Some(index) = names::register_index(arg) {
                 let value = state
                     .client
                     .read_register(index.try_into().unwrap())
