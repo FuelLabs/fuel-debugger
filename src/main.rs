@@ -1,41 +1,31 @@
 use clap::Parser;
+use fuel_debugger::names::register_name;
 use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
-use std::net::SocketAddr;
-use std::{fmt, net};
-use tokio::net::TcpListener;
+use std::fmt;
 
-use fuel_vm::consts::{VM_MAX_RAM, WORD_SIZE};
-use fuel_vm::prelude::{Breakpoint, ContractId};
+use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
+use fuel_vm::prelude::ContractId;
 
-use fuel_debugger::{Command, Response};
-
-use fuel_debugger_client::{names, Client, Listener};
+use fuel_debugger::{names, Client, Transaction};
 
 #[derive(Parser, Debug)]
 pub struct Opt {
-    #[clap(long = "ip", default_value = "127.0.0.1", parse(try_from_str))]
-    pub ip: net::IpAddr,
-
-    #[clap(long = "port", default_value = "4001")]
-    pub port: u16,
+    #[clap(default_value = "http://127.0.0.1:4000/graphql")]
+    pub api_url: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Opt::parse();
 
-    // let mut rl = Editor::<()>::new();
-
-    let listener = Listener::new(TcpListener::bind((config.ip, config.port)).await?);
-
-    println!(
-        "Listening for connections at {:?}",
-        SocketAddr::from((config.ip, config.port))
+    let mut shell = Shell::new_async(
+        State {
+            client: Client::new(surf::Url::parse(&config.api_url)?),
+        },
+        ">> ",
     );
-
-    let mut shell = Shell::new_async(State::default(), ">> ");
 
     macro_rules! command {
         ($f:ident, $help:literal, $names:expr) => {
@@ -48,7 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
 
-    command!(cmd_version, "query version information", ["v", "version"]);
+    command!(
+        cmd_start_tx,
+        "path/to/tx.json -- run until next breakpoint or termination",
+        ["n", "tx", "new_tx", "start_tx"]
+    );
     command!(
         cmd_continue,
         "-- run until next breakpoint or termination",
@@ -67,24 +61,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     command!(
         cmd_registers,
         "[regname ...] -- dump registers",
-        ["r", "registers"]
+        ["r", "reg", "register", "registers"]
     );
     command!(cmd_memory, "[offset] limit -- dump memory", ["m", "memory"]);
 
-    loop {
-        let (client, addr) = listener.accept().await?;
-        println!("Connected (remote {:?})", addr);
-
-        shell.state.connection = Some(client);
-        shell.run_async().await?;
-
-        println!("Disconnected");
-    }
+    shell.state.client.start_session().await?;
+    shell.run_async().await?;
+    shell.state.client.end_session().await?;
+    Ok(())
 }
 
-#[derive(Default)]
 struct State {
-    connection: Option<Client>,
+    client: Client,
 }
 
 #[derive(Debug)]
@@ -104,20 +92,18 @@ impl fmt::Display for ArgError {
     }
 }
 
-async fn cmd_version(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
+async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
+    let path_to_tx_json = args.pop().ok_or(Box::new(ArgError::NotEnough))?;
     if args.len() != 0 {
         return Err(Box::new(ArgError::TooMany));
     }
-    println!(
-        "{:?}",
-        state
-            .connection
-            .as_mut()
-            .unwrap()
-            .cmd(&Command::Version)
-            .await?
-    );
+
+    let tx_json = std::fs::read(path_to_tx_json)?;
+    let tx: Transaction = serde_json::from_slice(&tx_json).unwrap();
+    let status = state.client.start_tx(&tx).await?;
+    println!("{:?}", status); // TODO: pretty-print
+
     Ok(())
 }
 
@@ -126,15 +112,10 @@ async fn cmd_continue(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
     if args.len() != 0 {
         return Err(Box::new(ArgError::TooMany));
     }
-    println!(
-        "{:?}",
-        state
-            .connection
-            .as_mut()
-            .unwrap()
-            .cmd(&Command::Continue)
-            .await?
-    );
+
+    let status = state.client.continue_tx().await?;
+    println!("{:?}", status); // TODO: pretty-print
+
     Ok(())
 }
 
@@ -143,19 +124,15 @@ async fn cmd_step(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dy
     if args.len() > 1 {
         return Err(Box::new(ArgError::TooMany));
     }
-    println!(
-        "{:?}",
-        state
-            .connection
-            .as_mut()
-            .unwrap()
-            .cmd(&Command::SingleStepping(
-                args.get(0)
-                    .map(|v| ["off", "no", "disable"].contains(&v.as_str()))
-                    .unwrap_or(false),
-            ))
-            .await?
-    );
+
+    state
+        .client
+        .set_single_stepping(
+            args.get(0)
+                .map(|v| !["off", "no", "disable"].contains(&v.as_str()))
+                .unwrap_or(true),
+        )
+        .await?;
     Ok(())
 }
 
@@ -174,25 +151,17 @@ async fn cmd_breakpoint(state: &mut State, mut args: Vec<String>) -> Result<(), 
         return Err(Box::new(ArgError::Invalid));
     };
 
-    let b = if let Some(contract_id) = contract_id {
+    let bp = if let Some(contract_id) = contract_id {
         if let Ok(contract_id) = contract_id.parse::<ContractId>() {
-            Breakpoint::new(contract_id, offset)
+            fuel_vm::prelude::Breakpoint::new(contract_id, offset)
         } else {
             return Err(Box::new(ArgError::Invalid));
         }
     } else {
-        Breakpoint::script(offset)
+        fuel_vm::prelude::Breakpoint::script(offset)
     };
 
-    println!(
-        "{:?}",
-        state
-            .connection
-            .as_mut()
-            .unwrap()
-            .cmd(&Command::Breakpoint(b))
-            .await?
-    );
+    state.client.set_breakpoint(bp).await?;
 
     Ok(())
 }
@@ -200,35 +169,32 @@ async fn cmd_breakpoint(state: &mut State, mut args: Vec<String>) -> Result<(), 
 async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
 
-    let regs = match state
-        .connection
-        .as_mut()
-        .unwrap()
-        .cmd(&Command::ReadRegisters)
-        .await?
-    {
-        Response::ReadRegisters(regs) => regs,
-        other => panic!("Unexpected response {:?}", other),
-    };
-
-    for arg in &args {
-        if let Some(v) = parse_int(&arg) {
-            if v < regs.len() {
-                println!("{:?}", regs[v]);
+    if args.is_empty() {
+        for r in 0..VM_REGISTER_COUNT {
+            let value = state.client.read_register(r.try_into().unwrap()).await?;
+            println!("reg[{:#x}] = {:<8} # {}", r, value, register_name(r));
+        }
+    } else {
+        for arg in &args {
+            if let Some(v) = parse_int(&arg) {
+                if v < VM_REGISTER_COUNT {
+                    let value = state.client.read_register(v.try_into().unwrap()).await?;
+                    println!("reg[{:#02x}] = {:<8} # {}", v, value, register_name(v));
+                } else {
+                    println!("Register index too large {}", v);
+                    return Ok(());
+                }
+            } else if let Some(index) = names::register_index(&arg) {
+                let value = state
+                    .client
+                    .read_register(index.try_into().unwrap())
+                    .await?;
+                println!("reg[{:#02x}] = {:<8} # {}", index, value, arg);
             } else {
-                println!("Register index too large {}", v);
+                println!("Unknown register name {}", arg);
                 return Ok(());
             }
-        } else if let Some(i) = names::REGISTERS.get(&arg) {
-            println!("{:?}", regs[*i]);
-        } else {
-            println!("Unknown register name {}", arg);
-            return Ok(());
         }
-    }
-
-    if args.is_empty() {
-        println!("{:?}", regs);
     }
 
     Ok(())
@@ -241,7 +207,7 @@ async fn cmd_memory(state: &mut State, mut args: Vec<String>) -> Result<(), Box<
         .pop()
         .map(|a| parse_int(&a).ok_or(ArgError::Invalid))
         .transpose()?
-        .unwrap_or(WORD_SIZE * VM_MAX_RAM as usize);
+        .unwrap_or(WORD_SIZE * (VM_MAX_RAM as usize));
 
     let offset = args
         .pop()
@@ -253,19 +219,10 @@ async fn cmd_memory(state: &mut State, mut args: Vec<String>) -> Result<(), Box<
         return Err(Box::new(ArgError::TooMany));
     }
 
-    let mem = match state
-        .connection
-        .as_mut()
-        .unwrap()
-        .cmd(&Command::ReadMemory {
-            start: offset,
-            len: limit,
-        })
-        .await?
-    {
-        Response::ReadMemory(mem) => mem,
-        other => panic!("Unexpected response {:?}", other),
-    };
+    let mem = state
+        .client
+        .read_memory(offset.try_into().unwrap(), limit.try_into().unwrap())
+        .await?;
 
     for (i, chunk) in mem.chunks(WORD_SIZE).enumerate() {
         print!(" {:06x}:", offset + i * WORD_SIZE);

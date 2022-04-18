@@ -1,127 +1,162 @@
-use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+pub mod names;
+mod schema {
+    cynic::use_schema!("../fuel-core/fuel-core/schema.graphql");
+}
+mod queries;
 
-use fuel_types::Word;
-use fuel_vm::prelude::{Breakpoint, Interpreter, Receipt};
+use cynic::{http::SurfExt, MutationBuilder, QueryBuilder};
 
-pub enum CommandControlFlow {
-    /// Debugger awaiting for more commands
-    Debugger,
-    /// Run until breakpoint or termination
-    Proceed,
-    /// Terminate immediately
-    Terminate,
+// Re-exports
+pub use fuel_vm::prelude::Transaction;
+
+pub struct Client {
+    /// A HTTP client
+    http: surf::Client,
+    /// GraphQL API endpoint
+    api_url: surf::Url,
+    /// Active debugger session, if any
+    session: Option<cynic::Id>,
 }
 
-/// Debugger commands
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Command {
-    /// Requests version info of the node, so that
-    /// the debugger can ensure it's interoperable
-    Version,
-    /// Runs the program until any pause condition
-    /// 1. an error occurs
-    /// 2. a breapoint is encountered
-    /// 3. the program ends
-    Continue,
-    /// Turn single-stepping mode on or off
-    SingleStepping(bool),
-    /// Sets a breakpoint on given address
-    Breakpoint(Breakpoint),
-    /// Requests a register dump
-    ReadRegisters,
-    /// Requests a memory dump
-    ReadMemory { start: usize, len: usize },
-}
-impl Command {
-    pub fn execute<S>(&self, vm: &mut Interpreter<S>) -> (Option<Response>, CommandControlFlow) {
-        match self {
-            Self::Version => (
-                Some(Response::Version {
-                    core: env!("CARGO_PKG_VERSION").to_owned(),
-                }),
-                CommandControlFlow::Debugger,
-            ),
-            Self::Continue => (None, CommandControlFlow::Proceed),
-            Self::SingleStepping(value) => {
-                vm.set_single_stepping(*value);
-                (None, CommandControlFlow::Debugger)
-            }
-            Self::Breakpoint(b) => {
-                vm.set_breakpoint(*b);
-                (Some(Response::Ok), CommandControlFlow::Debugger)
-            }
-            Self::ReadRegisters => {
-                let regs = vm.registers().to_vec();
-                (
-                    Some(Response::ReadRegisters(regs)),
-                    CommandControlFlow::Debugger,
-                )
-            }
-            Self::ReadMemory { start, len } => {
-                let regs: Vec<_> = vm
-                    .memory()
-                    .iter()
-                    .skip(*start)
-                    .take(*len)
-                    .copied()
-                    .collect();
-                (
-                    Some(Response::ReadMemory(regs)),
-                    CommandControlFlow::Debugger,
-                )
-            }
-        }
-    }
-}
-
-/// Reponses to commands
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Response {
-    /// Command executed successfully
-    Ok,
-    /// Program terminated
-    Terminated { receipts: Vec<Receipt> },
-    /// Version reply
-    Version { core: String },
-    /// A breakpoint was encountered
-    Breakpoint(Breakpoint),
-    /// A register dump
-    ReadRegisters(Vec<Word>),
-    /// A memory dump
-    ReadMemory(Vec<u8>),
-}
-
-pub fn process<S>(stream: &mut TcpStream, vm: &mut Interpreter<S>, event: Option<Response>) {
-    let reader = stream.try_clone().expect("Couldn't clone socket");
-    let mut reader = BufReader::new(reader);
-    let mut line = String::new();
-
-    if let Some(r) = event {
-        let mut v = serde_json::to_string(&r).expect("Serialization failed");
-        v.push('\n');
-        stream.write_all(v.as_bytes()).expect("Sending failed");
+impl Client {
+    pub fn new(api_url: surf::Url) -> Self {
+        Self::new_config(api_url, surf::Config::new())
     }
 
-    while reader.read_line(&mut line).is_ok() {
-        let cmd: Command = serde_json::from_str(&line).expect("Invalid JSON from the debugger");
-        line.clear();
+    pub fn new_config(api_url: surf::Url, config: surf::Config) -> Self {
+        let client: surf::Client = config
+            .try_into()
+            .expect("Unable to instantiate a HTTP client");
 
-        let (resp, cf) = cmd.execute(vm);
-
-        if let Some(r) = resp {
-            let mut v = serde_json::to_string(&r).expect("Serialization failed");
-            v.push('\n');
-            stream.write_all(v.as_bytes()).expect("Sending failed");
+        Self {
+            http: client,
+            api_url,
+            session: None,
         }
+    }
 
-        match cf {
-            CommandControlFlow::Debugger => continue,
-            CommandControlFlow::Proceed => break,
-            CommandControlFlow::Terminate => todo!("debugger termination"),
-        }
+    pub async fn start_session(&mut self) -> Result<(), surf::Error> {
+        assert!(self.session.is_none(), "A session already exists");
+
+        let operation = queries::StartSession::build(());
+        let response = self.http.post(&self.api_url).run_graphql(operation).await?;
+
+        let session_id = response.data.expect("Missing session id").start_session;
+        self.session = Some(session_id);
+        Ok(())
+    }
+
+    pub async fn end_session(&mut self) -> Result<(), surf::Error> {
+        let id = self.session.take().expect("No session exists");
+
+        let operation = queries::EndSession::build(queries::EndSessionArguments { id });
+        let _ = self.http.post(&self.api_url).run_graphql(operation).await?;
+        Ok(())
+    }
+
+    pub async fn set_breakpoint(
+        &mut self,
+        bp: fuel_vm::prelude::Breakpoint,
+    ) -> Result<(), surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        let operation = queries::SetBreakpoint::build(queries::SetBreakpointArguments {
+            id,
+            bp: queries::Breakpoint {
+                contract: bp.contract().iter().map(|x| (*x) as i32).collect(),
+                pc: bp
+                    .pc()
+                    .try_into()
+                    .expect("pc outside i32 range is not supported yet"),
+            },
+        });
+        let response = surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data");
+
+        assert!(
+            response.set_breakpoint,
+            "Setting breakpoint returned invalid reply"
+        );
+        Ok(())
+    }
+
+    pub async fn set_single_stepping(&mut self, enable: bool) -> Result<(), surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        // Disable single-stepping
+        let operation =
+            queries::SetSingleStepping::build(queries::SetSingleSteppingArguments { id, enable });
+        surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data");
+        Ok(())
+    }
+
+    pub async fn start_tx(&mut self, tx: &Transaction) -> Result<queries::RunResult, surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        let operation = queries::StartTx::build(queries::StartTxArguments {
+            id,
+            tx: serde_json::to_string(tx).expect("Couldn't serialize tx to json"),
+        });
+        let response = surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data")
+            .start_tx;
+        Ok(response)
+    }
+
+    pub async fn continue_tx(&mut self) -> Result<queries::RunResult, surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        let operation = queries::ContinueTx::build(queries::ContinueTxArguments { id });
+        let response = surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data")
+            .continue_tx;
+        Ok(response)
+    }
+
+    pub async fn read_register(&mut self, reg: u64) -> Result<u64, surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        // Fetch register at breakpoint
+        let operation = queries::Register::build(queries::RegisterArguments {
+            id,
+            reg: queries::U64::new(reg),
+        });
+        let response = surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data")
+            .register;
+        Ok(response.value())
+    }
+    pub async fn read_memory(&mut self, start: u64, size: u64) -> Result<Vec<u8>, surf::Error> {
+        let id = self.session.clone().expect("No session exists");
+
+        // Fetch memory range at breakpoint
+        let operation = queries::Memory::build(queries::MemoryArguments {
+            id,
+            start: queries::U64::new(start),
+            size: queries::U64::new(size),
+        });
+        let response = surf::post(&self.api_url)
+            .run_graphql(operation)
+            .await?
+            .data
+            .expect("Missing response data")
+            .memory;
+        Ok(serde_json::from_str(&response).expect("Invalid JSON array"))
     }
 }
