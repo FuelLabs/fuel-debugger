@@ -5,7 +5,7 @@ pub use self::inner::*;
 /// This is an inline module because proc-macros on stable require it.
 /// https://github.com/rust-lang/rust/issues/54727
 #[cynic::schema_for_derives(
-    file = "../fuel-core/fuel-core/schema.graphql",
+    file = "schema.graphql",
     module = "crate::schema"
 )]
 mod inner {

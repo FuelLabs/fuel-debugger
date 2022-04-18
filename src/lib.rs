@@ -1,6 +1,6 @@
 pub mod names;
 mod schema {
-    cynic::use_schema!("../fuel-core/fuel-core/schema.graphql");
+    cynic::use_schema!("schema.graphql");
 }
 mod queries;
 
