@@ -5,16 +5,16 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1", features = ["env", "derive"] }
-cynic = { version = "1.0", features = ["surf"] }
 # fuel-gql-client = { version = "0.6" }
 fuel-types = { version = "0.3", features = ["serde-types"] }
-fuel-vm = { version = "0.9", features = ["serde", "debug"] }
-phf = { version = "0.10", features = ["macros"] }
-serde = { version = "1.0", features = ["derive"] }
+fuel-vm = { version = "0.9", features = ["serde"] }
 serde_json = "1.0"
 shellfish = { version = "0.6.0", features = ["rustyline", "async", "tokio"] }
 surf = "2.0.0"
 tokio = { version = "1.8", features = ["net", "io-util", "macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+anyhow = "1.0" # Used by the examples only
 
 [build-dependencies.fuel-core]
 git = "https://github.com/FuelLabs/fuel-core"

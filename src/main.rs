@@ -6,9 +6,7 @@ use std::error::Error;
 use std::fmt;
 
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
-use fuel_vm::prelude::ContractId;
-
-use fuel_debugger::{names, Client, Transaction};
+use fuel_debugger::{names, FuelClient, ContractId, Transaction};
 
 #[derive(Parser, Debug)]
 pub struct Opt {
@@ -22,7 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut shell = Shell::new_async(
         State {
-            client: Client::new(surf::Url::parse(&config.api_url)?),
+            client: FuelClient::new(&config.api_url)?,
+            session_id: String::new(), // Placeholder
         },
         ">> ",
     );
@@ -65,14 +64,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     command!(cmd_memory, "[offset] limit -- dump memory", ["m", "memory"]);
 
-    shell.state.client.start_session().await?;
+    let session_id = shell.state.client.start_session().await?;
+    shell.state.session_id = session_id.clone();
     shell.run_async().await?;
-    shell.state.client.end_session().await?;
+    shell.state.client.end_session(&session_id).await?;
     Ok(())
 }
 
 struct State {
-    client: Client,
+    client: FuelClient,
+    session_id: String,
 }
 
 #[derive(Debug)]
@@ -101,7 +102,7 @@ async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
 
     let tx_json = std::fs::read(path_to_tx_json)?;
     let tx: Transaction = serde_json::from_slice(&tx_json).unwrap();
-    let status = state.client.start_tx(&tx).await?;
+    let status = state.client.start_tx(&state.session_id, &tx).await?;
     println!("{:?}", status); // TODO: pretty-print
 
     Ok(())
@@ -113,7 +114,7 @@ async fn cmd_continue(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
         return Err(Box::new(ArgError::TooMany));
     }
 
-    let status = state.client.continue_tx().await?;
+    let status = state.client.continue_tx(&state.session_id).await?;
     println!("{:?}", status); // TODO: pretty-print
 
     Ok(())
@@ -128,6 +129,7 @@ async fn cmd_step(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dy
     state
         .client
         .set_single_stepping(
+            &state.session_id,
             args.get(0)
                 .map(|v| !["off", "no", "disable"].contains(&v.as_str()))
                 .unwrap_or(true),
@@ -151,17 +153,20 @@ async fn cmd_breakpoint(state: &mut State, mut args: Vec<String>) -> Result<(), 
         return Err(Box::new(ArgError::Invalid));
     };
 
-    let bp = if let Some(contract_id) = contract_id {
+    let contract = if let Some(contract_id) = contract_id {
         if let Ok(contract_id) = contract_id.parse::<ContractId>() {
-            fuel_vm::prelude::Breakpoint::new(contract_id, offset)
+            contract_id
         } else {
             return Err(Box::new(ArgError::Invalid));
         }
     } else {
-        fuel_vm::prelude::Breakpoint::script(offset)
+        ContractId::zeroed() // Current script
     };
 
-    state.client.set_breakpoint(bp).await?;
+    state
+        .client
+        .set_breakpoint(&state.session_id, contract, offset)
+        .await?;
 
     Ok(())
 }
@@ -171,14 +176,20 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
 
     if args.is_empty() {
         for r in 0..VM_REGISTER_COUNT {
-            let value = state.client.read_register(r.try_into().unwrap()).await?;
+            let value = state
+                .client
+                .register(&state.session_id, r.try_into().unwrap())
+                .await?;
             println!("reg[{:#x}] = {:<8} # {}", r, value, register_name(r));
         }
     } else {
         for arg in &args {
             if let Some(v) = parse_int(arg) {
                 if v < VM_REGISTER_COUNT {
-                    let value = state.client.read_register(v.try_into().unwrap()).await?;
+                    let value = state
+                        .client
+                        .register(&state.session_id, v.try_into().unwrap())
+                        .await?;
                     println!("reg[{:#02x}] = {:<8} # {}", v, value, register_name(v));
                 } else {
                     println!("Register index too large {}", v);
@@ -187,7 +198,7 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
             } else if let Some(index) = names::register_index(arg) {
                 let value = state
                     .client
-                    .read_register(index.try_into().unwrap())
+                    .register(&state.session_id, index.try_into().unwrap())
                     .await?;
                 println!("reg[{:#02x}] = {:<8} # {}", index, value, arg);
             } else {
@@ -221,7 +232,11 @@ async fn cmd_memory(state: &mut State, mut args: Vec<String>) -> Result<(), Box<
 
     let mem = state
         .client
-        .read_memory(offset.try_into().unwrap(), limit.try_into().unwrap())
+        .memory(
+            &state.session_id,
+            offset.try_into().unwrap(),
+            limit.try_into().unwrap(),
+        )
         .await?;
 
     for (i, chunk) in mem.chunks(WORD_SIZE).enumerate() {
