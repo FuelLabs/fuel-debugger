@@ -3,7 +3,6 @@ use fuel_debugger::names::register_name;
 use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
-use std::fmt;
 
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
 use fuel_debugger::{names, FuelClient, ContractId, Transaction};
@@ -76,21 +75,14 @@ struct State {
     session_id: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum ArgError {
+    #[error("Invalid argument")]
     Invalid,
+    #[error("Not enough arguments")]
     NotEnough,
+    #[error("Too many arguments")]
     TooMany,
-}
-impl Error for ArgError {}
-impl fmt::Display for ArgError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Invalid => write!(f, "Invalid argument"),
-            Self::NotEnough => write!(f, "Not enough arguments"),
-            Self::TooMany => write!(f, "Too many arguments"),
-        }
-    }
 }
 
 async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
