@@ -13,7 +13,8 @@ async fn run_example() -> Result<(), surf::Error> {
 
     client.set_breakpoint(Breakpoint::script(0)).await?;
 
-    let tx: Transaction = serde_json::from_str(include_str!("example_tx.json")).unwrap();
+    let tx: Transaction =
+        serde_json::from_str(include_str!("example_tx.json")).expect("Invalid transaction JSON");
     let status = client.start_tx(&tx).await?;
     assert!(status.breakpoint.is_some());
 

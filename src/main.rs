@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     command!(
         cmd_start_tx,
-        "path/to/tx.json -- run until next breakpoint or termination",
+        "path/to/tx.json -- start a new transaction",
         ["n", "tx", "new_tx", "start_tx"]
     );
     command!(

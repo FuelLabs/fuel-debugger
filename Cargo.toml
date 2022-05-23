@@ -6,8 +6,9 @@ edition = "2021"
 [dependencies]
 clap = { version = "3.1", features = ["env", "derive"] }
 cynic = { version = "1.0", features = ["surf"] }
+# fuel-gql-client = { version = "0.6" }
 fuel-types = { version = "0.3", features = ["serde-types"] }
-fuel-vm = { version = "0.6", features = ["serde-types", "debug"] }
+fuel-vm = { version = "0.9", features = ["serde", "debug"] }
 phf = { version = "0.10", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -19,3 +20,9 @@ tokio = { version = "1.8", features = ["net", "io-util", "macros", "rt-multi-thr
 git = "https://github.com/FuelLabs/fuel-core"
 branch = "debugging-profiling-wip"
 default-features = false
+# path = "../fuel-core/fuel-core"
+
+[dependencies.fuel-gql-client]
+git = "https://github.com/FuelLabs/fuel-core"
+branch = "debugging-profiling-wip"
+# path = "../fuel-core/fuel-client"

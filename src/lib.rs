@@ -1,10 +1,12 @@
-pub mod names;
-mod schema {
-    cynic::use_schema!("schema.graphql");
-}
-mod queries;
-
 use cynic::{http::SurfExt, MutationBuilder, QueryBuilder};
+
+use fuel_gql_client::client::schema::{
+    primitives::U64, Breakpoint, ContinueTx, ContinueTxArgs, ContractId, EndSession, HexFormatted,
+    IdArg, Memory, MemoryArgs, Register, RegisterArgs, RunResult, SetBreakpoint, SetBreakpointArgs,
+    SetSingleStepping, SetSingleSteppingArgs, StartSession, StartTx, StartTxArgs,
+};
+
+pub mod names;
 
 // Re-exports
 pub use fuel_vm::prelude::Transaction;
@@ -38,7 +40,7 @@ impl Client {
     pub async fn start_session(&mut self) -> Result<(), surf::Error> {
         assert!(self.session.is_none(), "A session already exists");
 
-        let operation = queries::StartSession::build(());
+        let operation = StartSession::build(());
         let response = self.http.post(&self.api_url).run_graphql(operation).await?;
 
         let session_id = response.data.expect("Missing session id").start_session;
@@ -49,7 +51,7 @@ impl Client {
     pub async fn end_session(&mut self) -> Result<(), surf::Error> {
         let id = self.session.take().expect("No session exists");
 
-        let operation = queries::EndSession::build(queries::EndSessionArguments { id });
+        let operation = EndSession::build(IdArg { id });
         let _ = self.http.post(&self.api_url).run_graphql(operation).await?;
         Ok(())
     }
@@ -60,10 +62,10 @@ impl Client {
     ) -> Result<(), surf::Error> {
         let id = self.session.clone().expect("No session exists");
 
-        let operation = queries::SetBreakpoint::build(queries::SetBreakpointArguments {
+        let operation = SetBreakpoint::build(SetBreakpointArgs {
             id,
-            bp: queries::Breakpoint {
-                contract: bp.contract().iter().map(|x| (*x) as i32).collect(),
+            bp: Breakpoint {
+                contract: ContractId(HexFormatted(*bp.contract())),
                 pc: bp
                     .pc()
                     .try_into()
@@ -87,8 +89,7 @@ impl Client {
         let id = self.session.clone().expect("No session exists");
 
         // Disable single-stepping
-        let operation =
-            queries::SetSingleStepping::build(queries::SetSingleSteppingArguments { id, enable });
+        let operation = SetSingleStepping::build(SetSingleSteppingArgs { id, enable });
         surf::post(&self.api_url)
             .run_graphql(operation)
             .await?
@@ -97,10 +98,10 @@ impl Client {
         Ok(())
     }
 
-    pub async fn start_tx(&mut self, tx: &Transaction) -> Result<queries::RunResult, surf::Error> {
+    pub async fn start_tx(&mut self, tx: &Transaction) -> Result<RunResult, surf::Error> {
         let id = self.session.clone().expect("No session exists");
 
-        let operation = queries::StartTx::build(queries::StartTxArguments {
+        let operation = StartTx::build(StartTxArgs {
             id,
             tx: serde_json::to_string(tx).expect("Couldn't serialize tx to json"),
         });
@@ -113,10 +114,10 @@ impl Client {
         Ok(response)
     }
 
-    pub async fn continue_tx(&mut self) -> Result<queries::RunResult, surf::Error> {
+    pub async fn continue_tx(&mut self) -> Result<RunResult, surf::Error> {
         let id = self.session.clone().expect("No session exists");
 
-        let operation = queries::ContinueTx::build(queries::ContinueTxArguments { id });
+        let operation = ContinueTx::build(ContinueTxArgs { id });
         let response = surf::post(&self.api_url)
             .run_graphql(operation)
             .await?
@@ -130,9 +131,9 @@ impl Client {
         let id = self.session.clone().expect("No session exists");
 
         // Fetch register at breakpoint
-        let operation = queries::Register::build(queries::RegisterArguments {
+        let operation = Register::build(RegisterArgs {
             id,
-            reg: queries::U64::new(reg),
+            register: U64(reg),
         });
         let response = surf::post(&self.api_url)
             .run_graphql(operation)
@@ -140,16 +141,16 @@ impl Client {
             .data
             .expect("Missing response data")
             .register;
-        Ok(response.value())
+        Ok(response.0)
     }
     pub async fn read_memory(&mut self, start: u64, size: u64) -> Result<Vec<u8>, surf::Error> {
         let id = self.session.clone().expect("No session exists");
 
         // Fetch memory range at breakpoint
-        let operation = queries::Memory::build(queries::MemoryArguments {
+        let operation = Memory::build(MemoryArgs {
             id,
-            start: queries::U64::new(start),
-            size: queries::U64::new(size),
+            start: U64(start),
+            size: U64(size),
         });
         let response = surf::post(&self.api_url)
             .run_graphql(operation)
