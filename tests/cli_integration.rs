@@ -8,7 +8,7 @@ use std::process::Command;
 fn test_cli() {
     let port = portpicker::pick_unused_port().expect("No ports free");
 
-    let _fuel_core = Command::new("fuel-core")
+    let mut fuel_core = Command::new("fuel-core")
         .arg("--db-type")
         .arg("in-memory")
         .arg("--port")
@@ -48,4 +48,6 @@ fn test_cli() {
     cmd.send_line("continue").unwrap();
     cmd.exp_regex(r"breakpoint: None").unwrap();
     cmd.send_line(r"exit").unwrap();
+
+    fuel_core.kill().expect("Couldn't kill fuel-core");
 }
