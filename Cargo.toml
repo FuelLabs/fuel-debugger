@@ -17,5 +17,5 @@ tokio = { version = "1.8", features = ["net", "io-util", "macros", "rt-multi-thr
 [dev-dependencies]
 anyhow = "1.0" # Used by the examples only
 escargot = "0.5.7"
-rexpect = "0.3"
 portpicker = "0.1.1"
+rexpect = "0.3"
