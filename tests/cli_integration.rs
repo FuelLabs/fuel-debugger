@@ -26,8 +26,7 @@ fn test_cli() {
 
     dbg!(&run_cmd);
 
-    run_cmd
-        .arg(format!("http://127.0.0.1:{}/graphql", port));
+    run_cmd.arg(format!("http://127.0.0.1:{}/graphql", port));
 
     let mut cmd = spawn_command(run_cmd, Some(2000)).unwrap();
 

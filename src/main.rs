@@ -4,8 +4,8 @@ use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
 
+use fuel_debugger::{names, ContractId, FuelClient, Transaction};
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
-use fuel_debugger::{names, FuelClient, ContractId, Transaction};
 
 #[derive(Parser, Debug)]
 pub struct Opt {
@@ -168,30 +168,21 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
 
     if args.is_empty() {
         for r in 0..VM_REGISTER_COUNT {
-            let value = state
-                .client
-                .register(&state.session_id, r.try_into().unwrap())
-                .await?;
+            let value = state.client.register(&state.session_id, r).await?;
             println!("reg[{:#x}] = {:<8} # {}", r, value, register_name(r));
         }
     } else {
         for arg in &args {
             if let Some(v) = parse_int(arg) {
                 if v < VM_REGISTER_COUNT {
-                    let value = state
-                        .client
-                        .register(&state.session_id, v.try_into().unwrap())
-                        .await?;
+                    let value = state.client.register(&state.session_id, v).await?;
                     println!("reg[{:#02x}] = {:<8} # {}", v, value, register_name(v));
                 } else {
                     println!("Register index too large {}", v);
                     return Ok(());
                 }
             } else if let Some(index) = names::register_index(arg) {
-                let value = state
-                    .client
-                    .register(&state.session_id, index.try_into().unwrap())
-                    .await?;
+                let value = state.client.register(&state.session_id, index).await?;
                 println!("reg[{:#02x}] = {:<8} # {}", index, value, arg);
             } else {
                 println!("Unknown register name {}", arg);
@@ -224,11 +215,7 @@ async fn cmd_memory(state: &mut State, mut args: Vec<String>) -> Result<(), Box<
 
     let mem = state
         .client
-        .memory(
-            &state.session_id,
-            offset.try_into().unwrap(),
-            limit.try_into().unwrap(),
-        )
+        .memory(&state.session_id, offset, limit)
         .await?;
 
     for (i, chunk) in mem.chunks(WORD_SIZE).enumerate() {

@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1", features = ["env", "derive"] }
-# fuel-gql-client = { version = "0.6" }
+fuel-gql-client = { version = "0.8" }
 fuel-types = { version = "0.3", features = ["serde-types"] }
-fuel-vm = { version = "0.9", features = ["serde"] }
+fuel-vm = { version = "0.11", features = ["serde"] }
 serde_json = "1.0"
 shellfish = { version = "0.6.0", features = ["rustyline", "async", "tokio"] }
 surf = "2.0.0"
@@ -19,14 +19,3 @@ anyhow = "1.0" # Used by the examples only
 escargot = "0.5.7"
 rexpect = "0.3"
 portpicker = "0.1.1"
-
-[build-dependencies.fuel-core]
-git = "https://github.com/FuelLabs/fuel-core"
-branch = "debugging-profiling-wip"
-default-features = false
-# path = "../fuel-core/fuel-core"
-
-[dependencies.fuel-gql-client]
-git = "https://github.com/FuelLabs/fuel-core"
-branch = "debugging-profiling-wip"
-# path = "../fuel-core/fuel-client"
