@@ -4,7 +4,7 @@ use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
 
-use fuel_debugger::{names, ContractId, FuelClient, Transaction, RunResult};
+use fuel_debugger::{names, ContractId, FuelClient, RunResult, Transaction};
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
 
 #[derive(Parser, Debug)]
@@ -95,7 +95,10 @@ fn pretty_print_run_result(rr: &RunResult) {
         println!("Receipt: {:?}", receipt);
     }
     if let Some(bp) = &rr.breakpoint {
-        println!("Stopped on breakpoint at address {} of contract {}", bp.pc.0, bp.contract);
+        println!(
+            "Stopped on breakpoint at address {} of contract {}",
+            bp.pc.0, bp.contract
+        );
     } else {
         println!("Terminated");
     }
