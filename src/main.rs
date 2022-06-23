@@ -4,7 +4,7 @@ use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
 
-use fuel_debugger::{names, ContractId, FuelClient, Transaction};
+use fuel_debugger::{names, ContractId, FuelClient, RunResult, Transaction};
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
 
 #[derive(Parser, Debug)]
@@ -40,6 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cmd_start_tx,
         "path/to/tx.json -- start a new transaction",
         ["n", "tx", "new_tx", "start_tx"]
+    );
+    command!(
+        cmd_reset,
+        "-- reset, removing breakpoints and other state",
+        ["reset"]
     );
     command!(
         cmd_continue,
@@ -85,6 +90,20 @@ enum ArgError {
     TooMany,
 }
 
+fn pretty_print_run_result(rr: &RunResult) {
+    for receipt in rr.receipts() {
+        println!("Receipt: {:?}", receipt);
+    }
+    if let Some(bp) = &rr.breakpoint {
+        println!(
+            "Stopped on breakpoint at address {} of contract {}",
+            bp.pc.0, bp.contract
+        );
+    } else {
+        println!("Terminated");
+    }
+}
+
 async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
     args.remove(0);
     let path_to_tx_json = args.pop().ok_or_else(|| Box::new(ArgError::NotEnough))?;
@@ -95,7 +114,18 @@ async fn cmd_start_tx(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
     let tx_json = std::fs::read(path_to_tx_json)?;
     let tx: Transaction = serde_json::from_slice(&tx_json).unwrap();
     let status = state.client.start_tx(&state.session_id, &tx).await?;
-    println!("{:?}", status); // TODO: pretty-print
+    pretty_print_run_result(&status);
+
+    Ok(())
+}
+
+async fn cmd_reset(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dyn Error>> {
+    args.remove(0);
+    if !args.is_empty() {
+        return Err(Box::new(ArgError::TooMany));
+    }
+
+    let _ = state.client.reset(&state.session_id).await?;
 
     Ok(())
 }
@@ -107,7 +137,7 @@ async fn cmd_continue(state: &mut State, mut args: Vec<String>) -> Result<(), Bo
     }
 
     let status = state.client.continue_tx(&state.session_id).await?;
-    println!("{:?}", status); // TODO: pretty-print
+    pretty_print_run_result(&status);
 
     Ok(())
 }
