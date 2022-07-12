@@ -139,7 +139,7 @@ Now we would like to inspect the program while it's running. To do this, we firs
 However, the key `script` in should contain the actual bytecode to execute, i.e. the contents of `out/debug/dbg_example.bin` as a JSON array. The following command can be used to generate it:
 
 ```bash
-python -c 'print(list(open("out/debug/dbg_example.bin", "rb").read()))'
+python3 -c 'print(list(open("out/debug/dbg_example.bin", "rb").read()))'
 ```
 
 So now we replace the script array with the result, and save it as `tx.json`. It looks something like this:
