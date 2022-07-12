@@ -305,7 +305,7 @@ At this point we can look at the values
 4  | 6
 5  | 24
 
-From this we can clearly see that the left side, register `16` is the `counter` variable, and register `17` is `result`. Now we the counter equals it the given argument, so the loop terminates. So when we continue, the program ends:
+From this we can clearly see that the left side, register `16` is the `counter` variable, and register `17` is `result`. Now the counter equals the given factorial function argument `5`, and the loop terminates. So when we continue, the program finishes without encountering any more breakpoints:
 
 ```
 >> c
