@@ -3,7 +3,7 @@
 First, we need a project to debug, so create a new project using
 
 ```bash
-forc init --script dbg_example && cd dbg_example
+forc new --script dbg_example && cd dbg_example
 ```
 
 And then add some content to `src/main.sw`, for example:
