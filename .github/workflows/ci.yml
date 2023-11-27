@@ -61,7 +61,7 @@ jobs:
       uses: baptiste0928/cargo-install@v1
       with:
         crate: fuel-core
-        version: "0.8"
+        version: "0.21"
 
     - name: Run tests
       uses: actions-rs/cargo@v1
