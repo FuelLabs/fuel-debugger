@@ -212,7 +212,10 @@ async fn cmd_registers(state: &mut State, mut args: Vec<String>) -> Result<(), B
                     return Ok(());
                 }
             } else if let Some(index) = names::register_index(arg) {
-                let value = state.client.register(&state.session_id, index as u32).await?;
+                let value = state
+                    .client
+                    .register(&state.session_id, index as u32)
+                    .await?;
                 println!("reg[{:#02x}] = {:<8} # {}", index, value, arg);
             } else {
                 println!("Unknown register name {}", arg);
