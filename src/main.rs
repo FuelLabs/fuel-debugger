@@ -152,7 +152,7 @@ async fn cmd_step(state: &mut State, mut args: Vec<String>) -> Result<(), Box<dy
         .client
         .set_single_stepping(
             &state.session_id,
-            args.get(0)
+            args.first()
                 .map(|v| !["off", "no", "disable"].contains(&v.as_str()))
                 .unwrap_or(true),
         )
