@@ -1,21 +1,31 @@
 use clap::Parser;
 use fuel_debugger::names::register_name;
+use fuel_debugger::server::DapServer;
 use shellfish::async_fn;
 use shellfish::{Command as ShCommand, Shell};
 use std::error::Error;
+use std::fs;
 
 use fuel_debugger::{names, ContractId, FuelClient, RunResult, Transaction};
 use fuel_vm::consts::{VM_MAX_RAM, VM_REGISTER_COUNT, WORD_SIZE};
 
 #[derive(Parser, Debug)]
 pub struct Opt {
+    /// The URL of the Fuel Client GraphQL API
     #[clap(default_value = "http://127.0.0.1:4000/graphql")]
     pub api_url: String,
+    /// Start the DAP server
+    #[clap(short, long)]
+    pub serve: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Opt::parse();
+
+    if config.serve {
+        return DapServer::new().start();
+    }
 
     let mut shell = Shell::new_async(
         State {
